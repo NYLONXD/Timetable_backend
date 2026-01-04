@@ -12,8 +12,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => ({
         uri: configService.get<string>('MONGODB_URI') || 'mongodb://localhost:27017/timetable',
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
+        // REMOVED: useNewUrlParser and useUnifiedTopology (deprecated in MongoDB driver v4+)
         autoIndex: true, // Create indexes automatically
       }),
     }),
