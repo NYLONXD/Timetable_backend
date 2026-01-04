@@ -126,9 +126,9 @@ export class TimetableService {
           for (let i = 0; i < sessions.length; i++) {
             const newSlot = new this.slotModel({
               generationId: generation._id,
-              sectionId: new Types.ObjectId(sectionId),
-              subjectId: new Types.ObjectId(subjectId),
-              teacherId: new Types.ObjectId(teacherId),
+              sectionId: sectionId,
+              subjectId: subjectId,
+              teacherId: teacherId,
               day: slot.day,
               period: slot.period + i,
               status: 'active',
