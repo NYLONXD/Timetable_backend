@@ -1,5 +1,5 @@
 // src/timetable/timetable.service.ts
-// UPDATED: Works with separate TimetableSlot and Conflict collections
+// FIXED VERSION with proper slot management and validation
 
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -24,20 +24,18 @@ export class TimetableService {
   ) {}
 
   // ============================================
-  // CORE GENERATION ALGORITHM
+  // CORE GENERATION ALGORITHM (FIXED)
   // ============================================
 
   async generate(generateDto: GenerateTimetableDto): Promise<Generation> {
     const startTime = Date.now();
     
-    // Fetch assignments with populated data
     const assignments = await this.assignmentsService.findByIds(generateDto.assignmentIds);
     
     if (assignments.length === 0) {
       throw new BadRequestException('No valid assignments provided');
     }
 
-    // Create generation document first
     const generation = new this.generationModel({
       name: generateDto.name,
       config: generateDto.config,
@@ -45,10 +43,9 @@ export class TimetableService {
     });
     await generation.save();
 
-    // Fetch teacher availability constraints
     const teacherAvailability = await this.teacherAvailabilityService.getAllAvailability();
 
-    // Initialize availability matrices
+    // Initialize availability matrices with proper period indexing
     const teacherSlots = this.initializeAvailability(
       assignments.map(a => a.teacherId.toString()),
       generateDto.config.days,
@@ -61,26 +58,46 @@ export class TimetableService {
       generateDto.config.periodsPerDay
     );
 
-    // Apply teacher availability constraints
+    // Apply teacher unavailability constraints
     teacherAvailability.forEach(avail => {
       if (avail.type === 'unavailable') {
         const teacherId = avail.teacherId.toString();
         const dayIndex = generateDto.config.days.indexOf(avail.day);
         if (dayIndex !== -1 && teacherSlots[teacherId]) {
-          teacherSlots[teacherId][avail.day][avail.period - 1] = false;
+          const periodIndex = avail.period - 1; // Convert 1-indexed to 0-indexed
+          if (periodIndex >= 0 && periodIndex < generateDto.config.periodsPerDay) {
+            teacherSlots[teacherId][avail.day][periodIndex] = false;
+          }
         }
       }
+    });
+
+    // Mark break/lunch periods as unavailable for ALL sections
+    const breakPeriods = new Set([
+      ...(generateDto.config.breakPeriods || []),
+      generateDto.config.lunchPeriod
+    ].filter(p => p !== undefined && p > 0));
+
+    Object.keys(sectionSlots).forEach(sectionId => {
+      generateDto.config.days.forEach(day => {
+        breakPeriods.forEach(period => {
+          const periodIndex = period - 1;
+          if (periodIndex >= 0 && periodIndex < generateDto.config.periodsPerDay) {
+            sectionSlots[sectionId][day][periodIndex] = false;
+          }
+        });
+      });
     });
 
     const slots: TimetableSlot[] = [];
     const conflicts: Conflict[] = [];
 
-    // Sort assignments by constraint (hard first), then priority (high first), then sessions
+    // Sort assignments: hard constraints first, then by priority, then by session count
     const sortedAssignments = [...assignments].sort((a, b) => {
       if (a.constraint === 'hard' && b.constraint !== 'hard') return -1;
       if (a.constraint !== 'hard' && b.constraint === 'hard') return 1;
       if (a.priority !== b.priority) return (b.priority || 5) - (a.priority || 5);
-      return b.sessions.perWeek - a.sessions.perWeek;
+      return (b.sessions.perWeek * b.sessions.length) - (a.sessions.perWeek * a.sessions.length);
     });
 
     // Place each assignment
@@ -90,73 +107,72 @@ export class TimetableService {
       const teacherId = assignment.teacherId.toString();
       const { sessions } = assignment;
 
-      // Find valid slots
-      const validSlots = this.findValidSlots(
-        sectionId,
-        teacherId,
-        generateDto.config.days,
-        generateDto.config.periodsPerDay,
-        generateDto.config.maxConsecutive,
-        sessions.length,
-        sectionSlots,
-        teacherSlots,
-        slots
-      );
-
-      // Shuffle for randomization
-      const shuffledSlots = this.shuffleArray(validSlots);
-
       let placed = 0;
-      for (const slot of shuffledSlots) {
-        if (placed >= sessions.perWeek) break;
+      const maxAttempts = generateDto.config.days.length * generateDto.config.periodsPerDay;
+      let attempts = 0;
 
-        // Place session (might span multiple consecutive periods)
-        const canPlace = this.canPlaceSession(
+      while (placed < sessions.perWeek && attempts < maxAttempts) {
+        attempts++;
+
+        // Find a valid slot for this session
+        const validSlot = this.findNextValidSlot(
           sectionId,
           teacherId,
-          slot.day,
-          slot.period,
+          generateDto.config.days,
+          generateDto.config.periodsPerDay,
+          generateDto.config.maxConsecutive,
           sessions.length,
           sectionSlots,
-          teacherSlots
+          teacherSlots,
+          breakPeriods
         );
 
-        if (canPlace) {
-          // Place all periods of the session
-          for (let i = 0; i < sessions.length; i++) {
-            const newSlot = new this.slotModel({
-              generationId: generation._id,
-              sectionId: sectionId,
-              subjectId: subjectId,
-              teacherId: teacherId,
-              day: slot.day,
-              period: slot.period + i,
-              status: 'active',
-            });
-
-            slots.push(newSlot);
-
-            // Mark as occupied
-            teacherSlots[teacherId][slot.day][slot.period + i - 1] = false;
-            sectionSlots[sectionId][slot.day][slot.period + i - 1] = false;
-          }
-          placed++;
+        if (!validSlot) {
+          break; // No more valid slots available
         }
+
+        // Place all periods of the session
+        for (let i = 0; i < sessions.length; i++) {
+          const currentPeriod = validSlot.period + i;
+          
+          const newSlot = new this.slotModel({
+            generationId: generation._id,
+            sectionId: sectionId,
+            subjectId: subjectId,
+            teacherId: teacherId,
+            day: validSlot.day,
+            period: currentPeriod,
+            status: 'active',
+          });
+
+          slots.push(newSlot);
+
+          // Mark as occupied (convert to 0-indexed)
+          const periodIndex = currentPeriod - 1;
+          teacherSlots[teacherId][validSlot.day][periodIndex] = false;
+          sectionSlots[sectionId][validSlot.day][periodIndex] = false;
+        }
+        
+        placed++;
       }
 
-      // Check if all sessions were placed
+      // Log conflicts if not all sessions were placed
       if (placed < sessions.perWeek) {
+        const subjectName = (assignment.subjectId as any).name || 'Unknown Subject';
+        const sectionCode = (assignment.sectionId as any).code || 'Unknown Section';
+        const teacherName = (assignment.teacherId as any).name || 'Unknown Teacher';
+        
         const conflict = new this.conflictModel({
           generationId: generation._id,
           type: 'insufficient_slots',
-          message: `Could not place all ${sessions.perWeek} sessions for ${(assignment.subjectId as any).name} (${(assignment.sectionId as any).code}) with ${(assignment.teacherId as any).name}. Only placed ${placed}.`,
+          message: `Could not place all ${sessions.perWeek} sessions for ${subjectName} (${sectionCode}) with ${teacherName}. Only placed ${placed}/${sessions.perWeek} sessions.`,
           severity: assignment.constraint === 'hard' ? 'error' : 'warning',
         });
         conflicts.push(conflict);
       }
     }
 
-    // Save all slots and conflicts in bulk
+    // Save all slots and conflicts
     if (slots.length > 0) {
       await this.slotModel.insertMany(slots);
     }
@@ -164,7 +180,6 @@ export class TimetableService {
       await this.conflictModel.insertMany(conflicts);
     }
 
-    // Calculate generation time
     const generationTime = (Date.now() - startTime) / 1000;
     generation.generationTime = generationTime;
     await generation.save();
@@ -173,7 +188,7 @@ export class TimetableService {
   }
 
   // ============================================
-  // HELPER FUNCTIONS
+  // FIXED HELPER FUNCTIONS
   // ============================================
 
   private initializeAvailability(
@@ -193,7 +208,7 @@ export class TimetableService {
     return availability;
   }
 
-  private findValidSlots(
+  private findNextValidSlot(
     sectionId: string,
     teacherId: string,
     days: string[],
@@ -202,77 +217,114 @@ export class TimetableService {
     sessionLength: number,
     sectionSlots: Record<string, Record<string, boolean[]>>,
     teacherSlots: Record<string, Record<string, boolean[]>>,
-    existingSlots: TimetableSlot[]
-  ): { day: string; period: number }[] {
-    const validSlots: { day: string; period: number }[] = [];
+    breakPeriods: Set<number>
+  ): { day: string; period: number } | null {
+    
+    // Shuffle days for randomization
+    const shuffledDays = this.shuffleArray([...days]);
 
-    days.forEach(day => {
+    for (const day of shuffledDays) {
+      // Try each period that could fit the session
       for (let period = 1; period <= periodsPerDay - sessionLength + 1; period++) {
-        // Check if all periods of session are available
-        const canPlace = this.canPlaceSession(
+        
+        // Check if this period is a break
+        if (breakPeriods.has(period)) {
+          continue;
+        }
+
+        // Check if all periods of the session are available
+        const canPlace = this.canPlaceSessionFixed(
           sectionId,
           teacherId,
           day,
           period,
           sessionLength,
+          periodsPerDay,
           sectionSlots,
-          teacherSlots
+          teacherSlots,
+          breakPeriods
         );
 
-        if (canPlace) {
-          // Check consecutive limit
-          const consecutiveCount = this.getConsecutiveCount(
-            sectionId,
-            day,
-            period,
-            sectionSlots
-          );
-
-          if (consecutiveCount < maxConsecutive) {
-            validSlots.push({ day, period });
-          }
+        if (!canPlace) {
+          continue;
         }
-      }
-    });
 
-    return validSlots;
+        // Check consecutive class limit (only for section, not teacher)
+        const consecutiveCount = this.getConsecutiveCountFixed(
+          sectionId,
+          day,
+          period,
+          sectionSlots
+        );
+
+        if (consecutiveCount + sessionLength > maxConsecutive) {
+          continue;
+        }
+
+        // Valid slot found
+        return { day, period };
+      }
+    }
+
+    return null; // No valid slot found
   }
 
-  private canPlaceSession(
+  private canPlaceSessionFixed(
     sectionId: string,
     teacherId: string,
     day: string,
     startPeriod: number,
     sessionLength: number,
+    periodsPerDay: number,
     sectionSlots: Record<string, Record<string, boolean[]>>,
-    teacherSlots: Record<string, Record<string, boolean[]>>
+    teacherSlots: Record<string, Record<string, boolean[]>>,
+    breakPeriods: Set<number>
   ): boolean {
+    
+    // Check if session would extend beyond the day
+    if (startPeriod + sessionLength - 1 > periodsPerDay) {
+      return false;
+    }
+
+    // Check each period in the session
     for (let i = 0; i < sessionLength; i++) {
-      const period = startPeriod + i;
-      if (
-        !teacherSlots[teacherId]?.[day]?.[period - 1] ||
-        !sectionSlots[sectionId]?.[day]?.[period - 1]
-      ) {
+      const currentPeriod = startPeriod + i;
+      const periodIndex = currentPeriod - 1; // Convert to 0-indexed
+
+      // Check if period is a break
+      if (breakPeriods.has(currentPeriod)) {
+        return false;
+      }
+
+      // Check teacher availability
+      if (!teacherSlots[teacherId]?.[day]?.[periodIndex]) {
+        return false;
+      }
+
+      // Check section availability
+      if (!sectionSlots[sectionId]?.[day]?.[periodIndex]) {
         return false;
       }
     }
+
     return true;
   }
 
-  private getConsecutiveCount(
+  private getConsecutiveCountFixed(
     sectionId: string,
     day: string,
-    period: number,
+    startPeriod: number,
     sectionSlots: Record<string, Record<string, boolean[]>>
   ): number {
     let count = 0;
     
-    // Check backwards
-    for (let p = period - 2; p >= 0; p--) {
-      if (!sectionSlots[sectionId][day][p]) {
+    // Count consecutive occupied periods BEFORE this slot
+    for (let period = startPeriod - 1; period >= 1; period--) {
+      const periodIndex = period - 1;
+      if (!sectionSlots[sectionId][day][periodIndex]) {
         count++;
       } else {
-        break;
+        break; // Hit an empty slot, stop counting
       }
     }
     
@@ -289,24 +341,19 @@ export class TimetableService {
   }
 
   // ============================================
-  // CRUD OPERATIONS
+  // CRUD OPERATIONS (NO CHANGES)
   // ============================================
 
   async findAll(): Promise<Generation[]> {
-    return await this.generationModel
-      .find()
-      .sort({ createdAt: -1 })
-      .exec();
+    return await this.generationModel.find().sort({ createdAt: -1 }).exec();
   }
 
   async findOne(id: string): Promise<any> {
     const generation = await this.generationModel.findById(id).exec();
-
     if (!generation) {
       throw new NotFoundException(`Generation with ID ${id} not found`);
     }
 
-    // Fetch slots and conflicts separately
     const slots = await this.slotModel
       .find({ generationId: id })
       .populate('sectionId')
@@ -314,15 +361,9 @@ export class TimetableService {
       .populate('teacherId')
       .exec();
 
-    const conflicts = await this.conflictModel
-      .find({ generationId: id })
-      .exec();
+    const conflicts = await this.conflictModel.find({ generationId: id }).exec();
 
-    return {
-      ...generation.toObject(),
-      slots,
-      conflicts,
-    };
+    return { ...generation.toObject(), slots, conflicts };
   }
 
   async update(id: string, updateDto: UpdateGenerationDto): Promise<Generation> {
@@ -338,7 +379,6 @@ export class TimetableService {
   }
 
   async remove(id: string): Promise<void> {
-    // Delete generation, slots, and conflicts
     await Promise.all([
       this.generationModel.findByIdAndDelete(id).exec(),
       this.slotModel.deleteMany({ generationId: id }).exec(),
@@ -346,15 +386,11 @@ export class TimetableService {
     ]);
   }
 
-  // Update a single slot
   async updateSlot(generationId: string, updateSlotDto: UpdateSlotDto): Promise<TimetableSlot> {
     const slot = await this.slotModel
       .findByIdAndUpdate(
         updateSlotDto.slotId,
-        {
-          ...updateSlotDto,
-          updatedAt: new Date(),
-        },
+        { ...updateSlotDto, updatedAt: new Date() },
         { new: true }
       )
       .exec();
@@ -366,7 +402,6 @@ export class TimetableService {
     return slot;
   }
 
-  // Activate a generation
   async activate(id: string): Promise<Generation> {
     await this.generationModel.updateMany(
       { status: 'active' },
