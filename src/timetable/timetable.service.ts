@@ -73,14 +73,15 @@ export class TimetableService {
     });
 
     // Mark break/lunch periods as unavailable for ALL sections
-    const breakPeriods = new Set([
+    const breakPeriodsList: number[] = [
       ...(generateDto.config.breakPeriods || []),
-      generateDto.config.lunchPeriod
-    ].filter(p => p !== undefined && p > 0));
+      ...(generateDto.config.lunchPeriod ? [generateDto.config.lunchPeriod] : [])
+    ].filter((p): p is number => p !== undefined && p > 0);
+    const breakPeriods = new Set(breakPeriodsList);
 
     Object.keys(sectionSlots).forEach(sectionId => {
       generateDto.config.days.forEach(day => {
-        breakPeriods.forEach(period => {
+        breakPeriods.forEach((period: number) => {
           const periodIndex = period - 1;
           if (periodIndex >= 0 && periodIndex < generateDto.config.periodsPerDay) {
             sectionSlots[sectionId][day][periodIndex] = false;
