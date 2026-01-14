@@ -1,66 +1,39 @@
-// src/teacher-availability/teacher-availability.service.ts
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { TeacherAvailability, TeacherAvailabilityDocument } from './schemas/teacher-availability.schema';
+// src/teacher-availability/teacher-availability.controller.ts
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { TeacherAvailabilityService } from './teacher-availability.service';
 import { CreateTeacherAvailabilityDto } from './dto/create-teacher-availability.dto';
 import { UpdateTeacherAvailabilityDto } from './dto/update-teacher-availability.dto';
 
-@Injectable()
-export class TeacherAvailabilityService {
-  constructor(
-    @InjectModel(TeacherAvailability.name) private availabilityModel: Model<TeacherAvailabilityDocument>,
-  ) {}
+@Controller('teacher-availability')
+export class TeacherAvailabilityController {
+  constructor(private readonly availabilityService: TeacherAvailabilityService) {}
 
-  async create(createDto: CreateTeacherAvailabilityDto): Promise<TeacherAvailability> {
-    try {
-      const availability = new this.availabilityModel(createDto);
-      return await availability.save();
-    } catch (error) {
-      if (error.code === 11000) {
-        throw new ConflictException('Availability for this teacher/day/period already exists');
-      }
-      throw error;
+  @Post()
+  create(@Body() createDto: CreateTeacherAvailabilityDto) {
+    return this.availabilityService.create(createDto);
+  }
+
+  @Get()
+  findAll(@Query('teacherId') teacherId?: string) {
+    if (teacherId) {
+      return this.availabilityService.findByTeacher(teacherId);
     }
+    return this.availabilityService.findAll();
   }
 
-  async findAll(): Promise<TeacherAvailability[]> {
-    return await this.availabilityModel.find().populate('teacherId').exec();
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.availabilityService.findOne(id);
   }
 
-  async findByTeacher(teacherId: string): Promise<TeacherAvailability[]> {
-    return await this.availabilityModel.find({ teacherId }).populate('teacherId').exec();
+  @Put(':id')
+  update(@Param('id') id: string, @Body() updateDto: UpdateTeacherAvailabilityDto) {
+    return this.availabilityService.update(id, updateDto);
   }
 
-  async findOne(id: string): Promise<TeacherAvailability> {
-    const availability = await this.availabilityModel.findById(id).populate('teacherId').exec();
-    if (!availability) {
-      throw new NotFoundException(`Availability with ID ${id} not found`);
-    }
-    return availability;
-  }
-
-  async update(id: string, updateDto: UpdateTeacherAvailabilityDto): Promise<TeacherAvailability> {
-    const availability = await this.availabilityModel
-      .findByIdAndUpdate(id, updateDto, { new: true })
-      .populate('teacherId')
-      .exec();
-    
-    if (!availability) {
-      throw new NotFoundException(`Availability with ID ${id} not found`);
-    }
-    
-    return availability;
-  }
-
-  async remove(id: string): Promise<void> {
-    const result = await this.availabilityModel.findByIdAndDelete(id).exec();
-    if (!result) {
-      throw new NotFoundException(`Availability with ID ${id} not found`);
-    }
-  }
-
-  async getAllAvailability(): Promise<TeacherAvailability[]> {
-    return await this.availabilityModel.find().exec();
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param('id') id: string) {
+    return this.availabilityService.remove(id);
   }
 }
