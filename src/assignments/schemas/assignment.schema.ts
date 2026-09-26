@@ -1,5 +1,5 @@
 // src/assignments/schemas/assignment.schema.ts
-// UPDATED: Changed to 'sessions' object, added 'constraint' and 'priority'
+// Who teaches which subject to which students, how often, and under which constraints.
 
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema as MongooseSchema, Types } from 'mongoose';
@@ -20,8 +20,15 @@ export type AssignmentDocument = Assignment & Document;
 
 @Schema({ timestamps: true })
 export class Assignment {
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Section', required: true })
-  sectionId: Types.ObjectId;
+  // One section, or several that attend together (a combined class)
+  @Prop({
+    type: [{ type: MongooseSchema.Types.ObjectId, ref: 'Section' }],
+    validate: {
+      validator: (ids: Types.ObjectId[]) => ids.length > 0,
+      message: 'An assignment needs at least one section',
+    },
+  })
+  sectionIds: Types.ObjectId[];
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Subject', required: true })
   subjectId: Types.ObjectId;
@@ -32,7 +39,7 @@ export class Assignment {
   @Prop({ type: SessionsSchema, required: true })
   sessions: Sessions; // CHANGED: Now an object with perWeek and length
 
-  @Prop({ 
+  @Prop({
     required: true,
     enum: ['hard', 'soft'],
     default: 'hard'
@@ -42,21 +49,39 @@ export class Assignment {
   @Prop({ min: 1, max: 10, default: 5 })
   priority?: number; // NEW: Priority for scheduling (1=low, 10=high)
 
+  // Only this batch of the section attends. Needs exactly one section.
+  @Prop({ trim: true, uppercase: true })
+  batch?: string;
+
+  // Assignments with the same label are scheduled at the same times: e.g. batch B1 in one lab
+  // while B2 is in another, or all the electives of one elective basket.
+  @Prop({ trim: true, uppercase: true })
+  parallelGroup?: string;
+
+  // Always hold these classes in this room
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Room' })
+  roomId?: Types.ObjectId;
+
+  // Expected attendance when it isn't everyone in the sections, e.g. an elective
+  @Prop({ min: 1 })
+  studentCount?: number;
+
   @Prop({ default: Date.now })
   createdAt: Date;
 }
 
 export const AssignmentSchema = SchemaFactory.createForClass(Assignment);
 
-// Compound unique index
+// A section takes a subject once (or once per batch). The index is multikey, so it applies
+// to every section in sectionIds.
 AssignmentSchema.index(
-  { sectionId: 1, subjectId: 1 },
+  { sectionIds: 1, subjectId: 1, batch: 1 },
   { unique: true }
 );
 
 // Other indexes
-AssignmentSchema.index({ sectionId: 1 });
 AssignmentSchema.index({ teacherId: 1 });
 AssignmentSchema.index({ subjectId: 1 });
+AssignmentSchema.index({ parallelGroup: 1 });
 AssignmentSchema.index({ constraint: 1 });
 AssignmentSchema.index({ createdAt: -1 });

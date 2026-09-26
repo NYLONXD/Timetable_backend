@@ -1,20 +1,28 @@
 // src/teachers/teachers.service.ts
 // Purpose: Business logic for teachers CRUD operations
 
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Teacher, TeacherDocument } from './schemas/teacher.schema';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
+import { Department } from '../departments/schemas/department.schema';
 
 @Injectable()
 export class TeachersService {
   constructor(
     @InjectModel(Teacher.name) private teacherModel: Model<TeacherDocument>,
+    @InjectModel(Department.name) private departmentModel: Model<Department>,
   ) {}
 
   async create(createTeacherDto: CreateTeacherDto): Promise<Teacher> {
+    await this.checkDepartment(createTeacherDto.departmentId);
     try {
       const teacher = new this.teacherModel(createTeacherDto);
       return await teacher.save();
@@ -27,11 +35,18 @@ export class TeachersService {
   }
 
   async findAll(): Promise<Teacher[]> {
-    return await this.teacherModel.find().sort({ createdAt: -1 }).exec();
+    return await this.teacherModel
+      .find()
+      .populate('departmentId')
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
   async findOne(id: string): Promise<Teacher> {
-    const teacher = await this.teacherModel.findById(id).exec();
+    const teacher = await this.teacherModel
+      .findById(id)
+      .populate('departmentId')
+      .exec();
     if (!teacher) {
       throw new NotFoundException(`Teacher with ID ${id} not found`);
     }
@@ -39,9 +54,11 @@ export class TeachersService {
   }
 
   async update(id: string, updateTeacherDto: UpdateTeacherDto): Promise<Teacher> {
+    await this.checkDepartment(updateTeacherDto.departmentId);
     try {
       const teacher = await this.teacherModel
         .findByIdAndUpdate(id, updateTeacherDto, { new: true })
+        .populate('departmentId')
         .exec();
       
       if (!teacher) {
@@ -67,5 +84,14 @@ export class TeachersService {
   async exists(id: string): Promise<boolean> {
     const count = await this.teacherModel.countDocuments({ _id: id }).exec();
     return count > 0;
+  }
+
+  private async checkDepartment(departmentId?: string | null) {
+    if (
+      departmentId &&
+      (await this.departmentModel.countDocuments({ _id: departmentId })) === 0
+    ) {
+      throw new BadRequestException('Department does not exist');
+    }
   }
 }

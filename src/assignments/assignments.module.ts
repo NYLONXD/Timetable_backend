@@ -7,6 +7,7 @@ import { Assignment, AssignmentSchema } from './schemas/assignment.schema';
 import { SectionsModule } from '../sections/sections.module';
 import { SubjectsModule } from '../subjects/subjects.module';
 import { TeachersModule } from '../teachers/teachers.module';
+import { RoomsModule } from '../rooms/rooms.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { TeachersModule } from '../teachers/teachers.module';
     SectionsModule,
     SubjectsModule,
     TeachersModule,
+    RoomsModule,
   ],
   controllers: [AssignmentsController],
   providers: [AssignmentsService],

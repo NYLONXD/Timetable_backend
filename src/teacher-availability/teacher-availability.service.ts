@@ -60,7 +60,9 @@ export class TeacherAvailabilityService {
     }
   }
 
-  async getAllAvailability(): Promise<TeacherAvailability[]> {
-    return await this.availabilityModel.find().exec();
+  async findForTeachers(teacherIds: string[]): Promise<TeacherAvailability[]> {
+    return await this.availabilityModel
+      .find({ teacherId: { $in: teacherIds } })
+      .exec();
   }
 }

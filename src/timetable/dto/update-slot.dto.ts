@@ -22,6 +22,10 @@ export class UpdateSlotDto {
   teacherId?: string;
 
   @IsOptional()
+  @IsMongoId()
+  roomId?: string;
+
+  @IsOptional()
   @IsEnum(['active', 'locked', 'substituted', 'cancelled', 'break'])
   status?: string;
 

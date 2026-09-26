@@ -1,7 +1,20 @@
 // src/assignments/dto/create-assignment.dto.ts
 // UPDATED: Changed to 'sessions' object, added 'constraint' and 'priority'
 
-import { IsString, IsInt, Min, Max, IsOptional, IsNotEmpty, IsMongoId, IsEnum, ValidateNested } from 'class-validator';
+import {
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsMongoId,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 // Sessions DTO
@@ -18,9 +31,11 @@ class SessionsDto {
 }
 
 export class CreateAssignmentDto {
-  @IsMongoId()
-  @IsNotEmpty()
-  sectionId: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayUnique()
+  @IsMongoId({ each: true })
+  sectionIds: string[]; // several sections = a combined class
 
   @IsMongoId()
   @IsNotEmpty()
@@ -42,4 +57,25 @@ export class CreateAssignmentDto {
   @Min(1)
   @Max(10)
   priority?: number; // NEW: Priority for scheduling (1=low, 10=high)
+
+  // For the optional fields below, send null on update to clear them
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  batch?: string | null; // only this batch of the (single) section attends
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  parallelGroup?: string | null; // same label = scheduled at the same times
+
+  @IsOptional()
+  @IsMongoId()
+  roomId?: string | null; // always use this room
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  studentCount?: number | null; // expected attendance, if not the whole sections
 }

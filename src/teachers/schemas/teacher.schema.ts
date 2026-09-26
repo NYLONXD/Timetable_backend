@@ -2,7 +2,7 @@
 // UPDATED: Added 'staffId' as unique identifier, added 'maxHoursPerWeek'
 
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type TeacherDocument = Teacher & Document;
 
@@ -23,9 +23,10 @@ export class Teacher {
   })
   email?: string;
 
-  @Prop({ trim: true })
-  department?: string;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Department' })
+  departmentId?: Types.ObjectId; // home department; can still teach any department's classes
 
+  // Enforced by the generator, counting classes in other active timetables of the term too
   @Prop({ min: 1, max: 10, default: 6 })
   maxHoursPerDay?: number;
 
@@ -38,9 +39,7 @@ export class Teacher {
 
 export const TeacherSchema = SchemaFactory.createForClass(Teacher);
 
-// Indexes
-TeacherSchema.index({ staffId: 1 }, { unique: true });
+// Indexes (staffId and email are already unique via @Prop)
 TeacherSchema.index({ name: 1 });
-TeacherSchema.index({ email: 1 }, { unique: true, sparse: true });
-TeacherSchema.index({ department: 1 });
+TeacherSchema.index({ departmentId: 1 });
 TeacherSchema.index({ createdAt: -1 });

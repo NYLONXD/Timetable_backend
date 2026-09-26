@@ -10,6 +10,9 @@ import { TeachersModule } from './teachers/teachers.module';
 import { TeacherAvailabilityModule } from './teacher-availability/teacher-availability.module'; // NEW
 import { AssignmentsModule } from './assignments/assignments.module';
 import { TimetableModule } from './timetable/timetable.module';
+import { DepartmentsModule } from './departments/departments.module';
+import { RoomsModule } from './rooms/rooms.module';
+import { TermsModule } from './terms/terms.module';
 
 @Module({
   imports: [
@@ -17,6 +20,9 @@ import { TimetableModule } from './timetable/timetable.module';
       isGlobal: true,
     }),
     DatabaseModule,
+    DepartmentsModule,
+    RoomsModule,
+    TermsModule,
     SectionsModule,
     SubjectsModule,
     TeachersModule,

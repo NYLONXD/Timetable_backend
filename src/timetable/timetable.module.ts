@@ -10,6 +10,8 @@ import { TimetableSlot, TimetableSlotSchema } from '../timetable/schemas/timetab
 import { Conflict, ConflictSchema } from '../timetable/schemas/conflicts.schema';
 import { AssignmentsModule } from '../assignments/assignments.module';
 import { TeacherAvailabilityModule } from '../teacher-availability/teacher-availability.module';
+import { Term, TermSchema } from '../terms/schemas/term.schema';
+import { Room, RoomSchema } from '../rooms/schemas/room.schema';
 
 @Module({
   imports: [
@@ -17,6 +19,9 @@ import { TeacherAvailabilityModule } from '../teacher-availability/teacher-avail
       { name: Generation.name, schema: GenerationSchema },
       { name: TimetableSlot.name, schema: TimetableSlotSchema }, // NEW
       { name: Conflict.name, schema: ConflictSchema }, // NEW
+      // Read-only here: the term's bell schedule and the rooms to schedule into
+      { name: Term.name, schema: TermSchema },
+      { name: Room.name, schema: RoomSchema },
     ]),
     AssignmentsModule,
     TeacherAvailabilityModule, // NEW

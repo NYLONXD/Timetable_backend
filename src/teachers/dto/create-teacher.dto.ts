@@ -1,7 +1,16 @@
 // src/teachers/dto/create-teacher.dto.ts
 // UPDATED: Added 'staffId' field, added 'maxHoursPerWeek'
 
-import { IsString, IsOptional, IsEmail, IsInt, Min, Max, IsNotEmpty } from 'class-validator';
+import {
+  IsEmail,
+  IsInt,
+  IsMongoId,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class CreateTeacherDto {
   @IsString()
@@ -17,8 +26,8 @@ export class CreateTeacherDto {
   email?: string;
 
   @IsOptional()
-  @IsString()
-  department?: string;
+  @IsMongoId()
+  departmentId?: string;
 
   @IsOptional()
   @IsInt()

@@ -1,5 +1,5 @@
 // src/timetable/schemas/timetable-slots.schema.ts
-// NEW SCHEMA: Separate collection for timetable slots (scalability)
+// One period of one class in a generated timetable
 
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema as MongooseSchema, Types } from 'mongoose';
@@ -15,8 +15,18 @@ export class TimetableSlot {
   })
   generationId: Types.ObjectId;
 
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Section', required: true })
-  sectionId: Types.ObjectId;
+  // Sections attending: one, or several for a combined class
+  @Prop({
+    type: [{ type: MongooseSchema.Types.ObjectId, ref: 'Section' }],
+    validate: {
+      validator: (ids: Types.ObjectId[]) => ids.length > 0,
+      message: 'A slot needs at least one section',
+    },
+  })
+  sectionIds: Types.ObjectId[];
+
+  @Prop({ trim: true })
+  batch?: string; // only this batch of the section attends
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Subject' })
   subjectId?: Types.ObjectId; // Null for breaks
@@ -24,13 +34,19 @@ export class TimetableSlot {
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Teacher' })
   teacherId?: Types.ObjectId; // Null for breaks
 
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Room' })
+  roomId?: Types.ObjectId; // unset when the institution has no rooms set up
+
+  @Prop()
+  parallelGroup?: string; // runs alongside the other classes with this label
+
   @Prop({ required: true })
   day: string;
 
   @Prop({ required: true, min: 1 })
   period: number;
 
-  @Prop({ 
+  @Prop({
     required: true,
     enum: ['active', 'locked', 'substituted', 'cancelled', 'break'],
     default: 'active'
@@ -61,15 +77,22 @@ export class TimetableSlot {
 
 export const TimetableSlotSchema = SchemaFactory.createForClass(TimetableSlot);
 
-// Compound unique index - no two classes at same time for same section
+// Within a timetable, a teacher or a room has at most one class per period. (Sections can
+// legitimately have several at once: parallel batches, electives.)
 TimetableSlotSchema.index(
-  { generationId: 1, sectionId: 1, day: 1, period: 1 },
-  { unique: true }
+  { generationId: 1, teacherId: 1, day: 1, period: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { teacherId: { $type: 'objectId' } },
+  },
+);
+TimetableSlotSchema.index(
+  { generationId: 1, roomId: 1, day: 1, period: 1 },
+  { unique: true, partialFilterExpression: { roomId: { $type: 'objectId' } } },
 );
 
 // Query indexes
-TimetableSlotSchema.index({ generationId: 1, teacherId: 1 });
-TimetableSlotSchema.index({ generationId: 1, sectionId: 1 });
+TimetableSlotSchema.index({ generationId: 1, sectionIds: 1 });
 TimetableSlotSchema.index({ teacherId: 1, day: 1, period: 1 });
 TimetableSlotSchema.index({ status: 1 });
 TimetableSlotSchema.index({ isLocked: 1 });

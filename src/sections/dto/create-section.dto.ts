@@ -1,7 +1,16 @@
 // src/sections/dto/create-section.dto.ts
 // UPDATED: Changed to 'code' field, added 'name' and 'strength'
 
-import { IsString, IsOptional, IsInt, Min, Max, IsNotEmpty } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsMongoId,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class CreateSectionDto {
   @IsString()
@@ -25,6 +34,16 @@ export class CreateSectionDto {
   @IsInt()
   @Min(1)
   strength?: number; // NEW: Number of students
+
+  @IsOptional()
+  @IsMongoId()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @IsNotEmpty({ each: true })
+  batches?: string[]; // e.g. ['B1', 'B2'] when labs split the section
 }
 
 // src/sections/dto/update-section.dto.ts
