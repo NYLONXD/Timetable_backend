@@ -2,7 +2,7 @@
 // UPDATED: Changed to 'sessions' object, added 'constraint' and 'priority'
 
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 
 // Sessions subdocument
 @Schema({ _id: false })
@@ -20,13 +20,13 @@ export type AssignmentDocument = Assignment & Document;
 
 @Schema({ timestamps: true })
 export class Assignment {
-  @Prop({ type: Types.ObjectId, ref: 'Section', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Section', required: true })
   sectionId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Subject', required: true })
   subjectId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Teacher', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Teacher', required: true })
   teacherId: Types.ObjectId;
 
   @Prop({ type: SessionsSchema, required: true })

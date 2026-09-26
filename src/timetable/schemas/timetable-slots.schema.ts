@@ -2,22 +2,26 @@
 // NEW SCHEMA: Separate collection for timetable slots (scalability)
 
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type TimetableSlotDocument = TimetableSlot & Document;
 
 @Schema({ timestamps: true })
 export class TimetableSlot {
-  @Prop({ type: Types.ObjectId, ref: 'Generation', required: true })
+  @Prop({
+    type: MongooseSchema.Types.ObjectId,
+    ref: 'Generation',
+    required: true,
+  })
   generationId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Section', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Section', required: true })
   sectionId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject' })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Subject' })
   subjectId?: Types.ObjectId; // Null for breaks
 
-  @Prop({ type: Types.ObjectId, ref: 'Teacher' })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Teacher' })
   teacherId?: Types.ObjectId; // Null for breaks
 
   @Prop({ required: true })
@@ -39,7 +43,7 @@ export class TimetableSlot {
   @Prop()
   lockReason?: string; // Why this slot is locked
 
-  @Prop({ type: Types.ObjectId, ref: 'Teacher' })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Teacher' })
   originalTeacherId?: Types.ObjectId; // Original teacher if substituted
 
   @Prop()

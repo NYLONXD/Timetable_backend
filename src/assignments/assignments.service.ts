@@ -10,6 +10,9 @@ import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { SectionsService } from '../sections/sections.service';
 import { SubjectsService } from '../subjects/subjects.service';
 import { TeachersService } from '../teachers/teachers.service';
+import { SectionDocument } from '../sections/schemas/section.schema';
+import { SubjectDocument } from '../subjects/schemas/subject.schema';
+import { TeacherDocument } from '../teachers/schemas/teacher.schema';
 
 @Injectable()
 export class AssignmentsService {
@@ -100,12 +103,15 @@ export class AssignmentsService {
     }
   }
 
-  async findByIds(ids: string[]): Promise<Assignment[]> {
+  // Refs come back as their full documents, or null if that document was deleted
+  async findByIds(ids: string[]) {
     return await this.assignmentModel
       .find({ _id: { $in: ids } })
-      .populate('sectionId')
-      .populate('subjectId')
-      .populate('teacherId')
+      .populate<{
+        sectionId: SectionDocument | null;
+        subjectId: SubjectDocument | null;
+        teacherId: TeacherDocument | null;
+      }>(['sectionId', 'subjectId', 'teacherId'])
       .exec();
   }
 }

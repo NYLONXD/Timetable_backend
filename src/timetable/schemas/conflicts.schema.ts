@@ -2,13 +2,17 @@
 // NEW SCHEMA: Separate collection for conflict tracking
 
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type ConflictDocument = Conflict & Document;
 
 @Schema({ timestamps: true })
 export class Conflict {
-  @Prop({ type: Types.ObjectId, ref: 'Generation', required: true })
+  @Prop({
+    type: MongooseSchema.Types.ObjectId,
+    ref: 'Generation',
+    required: true,
+  })
   generationId: Types.ObjectId;
 
   @Prop({ required: true })
@@ -23,7 +27,7 @@ export class Conflict {
   @Prop({ required: true })
   message: string; // Human-readable description
 
-  @Prop({ type: [Types.ObjectId], ref: 'TimetableSlot' })
+  @Prop({ type: [MongooseSchema.Types.ObjectId], ref: 'TimetableSlot' })
   affectedSlots?: Types.ObjectId[]; // Slot IDs involved in conflict
 
   @Prop({ default: false })

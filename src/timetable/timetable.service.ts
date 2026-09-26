@@ -30,11 +30,37 @@ export class TimetableService {
   async generate(generateDto: GenerateTimetableDto): Promise<Generation> {
     const startTime = Date.now();
     
-    const assignments = await this.assignmentsService.findByIds(generateDto.assignmentIds);
-    
-    if (assignments.length === 0) {
+    const populatedAssignments = await this.assignmentsService.findByIds(
+      generateDto.assignmentIds,
+    );
+
+    if (populatedAssignments.length === 0) {
       throw new BadRequestException('No valid assignments provided');
     }
+
+    // Refs arrive as full documents, so take ids from _id: toString() on a document
+    // returns a text dump of it. A ref is null if its document has since been deleted.
+    const assignments = populatedAssignments.map((assignment) => {
+      const {
+        sectionId: section,
+        subjectId: subject,
+        teacherId: teacher,
+      } = assignment;
+      if (!section || !subject || !teacher) {
+        throw new BadRequestException(
+          'Some selected assignments point to a section, subject or teacher that no longer exists. Edit or delete them, then generate again.',
+        );
+      }
+      return {
+        sectionId: section._id.toString(),
+        subjectId: subject._id.toString(),
+        teacherId: teacher._id.toString(),
+        label: `${subject.name} (${section.code}) with ${teacher.name}`,
+        sessions: assignment.sessions,
+        constraint: assignment.constraint,
+        priority: assignment.priority,
+      };
+    });
 
     const generation = new this.generationModel({
       name: generateDto.name,
@@ -47,13 +73,13 @@ export class TimetableService {
 
     // Initialize availability matrices with proper period indexing
     const teacherSlots = this.initializeAvailability(
-      assignments.map(a => a.teacherId.toString()),
+      assignments.map((a) => a.teacherId),
       generateDto.config.days,
       generateDto.config.periodsPerDay
     );
 
     const sectionSlots = this.initializeAvailability(
-      assignments.map(a => a.sectionId.toString()),
+      assignments.map((a) => a.sectionId),
       generateDto.config.days,
       generateDto.config.periodsPerDay
     );
@@ -103,10 +129,7 @@ export class TimetableService {
 
     // Place each assignment
     for (const assignment of sortedAssignments) {
-      const sectionId = assignment.sectionId.toString();
-      const subjectId = assignment.subjectId.toString();
-      const teacherId = assignment.teacherId.toString();
-      const { sessions } = assignment;
+      const { sectionId, subjectId, teacherId, sessions } = assignment;
 
       let placed = 0;
       const maxAttempts = generateDto.config.days.length * generateDto.config.periodsPerDay;
@@ -159,14 +182,10 @@ export class TimetableService {
 
       // Log conflicts if not all sessions were placed
       if (placed < sessions.perWeek) {
-        const subjectName = (assignment.subjectId as any).name || 'Unknown Subject';
-        const sectionCode = (assignment.sectionId as any).code || 'Unknown Section';
-        const teacherName = (assignment.teacherId as any).name || 'Unknown Teacher';
-        
         const conflict = new this.conflictModel({
           generationId: generation._id,
           type: 'insufficient_slots',
-          message: `Could not place all ${sessions.perWeek} sessions for ${subjectName} (${sectionCode}) with ${teacherName}. Only placed ${placed}/${sessions.perWeek} sessions.`,
+          message: `Could not place all ${sessions.perWeek} sessions for ${assignment.label}. Only placed ${placed}/${sessions.perWeek} sessions.`,
           severity: assignment.constraint === 'hard' ? 'error' : 'warning',
         });
         conflicts.push(conflict);
@@ -251,14 +270,17 @@ export class TimetableService {
         }
 
         // Check consecutive class limit (only for section, not teacher)
-        const consecutiveCount = this.getConsecutiveCountFixed(
+        const runLength = this.getConsecutiveRunLength(
           sectionId,
           day,
           period,
-          sectionSlots
+          sessionLength,
+          periodsPerDay,
+          sectionSlots,
+          breakPeriods,
         );
 
-        if (consecutiveCount + sessionLength > maxConsecutive) {
+        if (runLength > maxConsecutive) {
           continue;
         }
 
@@ -311,25 +333,30 @@ export class TimetableService {
     return true;
   }
 
-  private getConsecutiveCountFixed(
+  // Length of the unbroken run of classes the session would be part of, including classes
+  // already placed directly before AND after it. Breaks end a run rather than extend it.
+  private getConsecutiveRunLength(
     sectionId: string,
     day: string,
     startPeriod: number,
-    sectionSlots: Record<string, Record<string, boolean[]>>
+    sessionLength: number,
+    periodsPerDay: number,
+    sectionSlots: Record<string, Record<string, boolean[]>>,
+    breakPeriods: Set<number>,
   ): number {
-    let count = 0;
-    
-    // Count consecutive occupied periods BEFORE this slot
-    for (let period = startPeriod - 1; period >= 1; period--) {
-      const periodIndex = period - 1;
-      if (!sectionSlots[sectionId][day][periodIndex]) {
-        count++;
-      } else {
-        break; // Hit an empty slot, stop counting
-      }
+    // Break periods are also marked unavailable in sectionSlots, so exclude them explicitly
+    const isClass = (period: number) =>
+      !breakPeriods.has(period) && !sectionSlots[sectionId][day][period - 1];
+
+    let first = startPeriod;
+    while (first > 1 && isClass(first - 1)) {
+      first--;
     }
-    
-    return count;
+    let last = startPeriod + sessionLength - 1;
+    while (last < periodsPerDay && isClass(last + 1)) {
+      last++;
+    }
+    return last - first + 1;
   }
 
   private shuffleArray<T>(array: T[]): T[] {
@@ -342,11 +369,41 @@ export class TimetableService {
   }
 
   // ============================================
-  // CRUD OPERATIONS (NO CHANGES)
+  // CRUD OPERATIONS
   // ============================================
 
-  async findAll(): Promise<Generation[]> {
-    return await this.generationModel.find().sort({ createdAt: -1 }).exec();
+  // For the list view: each generation with how many slots and conflicts it has
+  async findAll() {
+    const generations = await this.generationModel
+      .find()
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+    const ids = generations.map((g) => g._id);
+    const [slotCounts, conflictCounts] = await Promise.all([
+      this.countByGeneration(this.slotModel, ids),
+      this.countByGeneration(this.conflictModel, ids),
+    ]);
+
+    return generations.map((g) => ({
+      ...g,
+      slotCount: slotCounts.get(String(g._id)) ?? 0,
+      conflictCount: conflictCounts.get(String(g._id)) ?? 0,
+    }));
+  }
+
+  private async countByGeneration(
+    model: Model<any>,
+    generationIds: Types.ObjectId[],
+  ): Promise<Map<string, number>> {
+    const counts = await model.aggregate<{
+      _id: Types.ObjectId;
+      count: number;
+    }>([
+      { $match: { generationId: { $in: generationIds } } },
+      { $group: { _id: '$generationId', count: { $sum: 1 } } },
+    ]);
+    return new Map(counts.map((c) => [String(c._id), c.count]));
   }
 
   async findOne(id: string): Promise<any> {
